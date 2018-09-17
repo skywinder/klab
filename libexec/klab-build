@@ -26,7 +26,7 @@ const raw_config    = marked.lexer(raw_md_config)
 const acts_str      = raw_config
                       .filter(e => e.type === "code")
                       .map(e => e.text)
-                      .join("\n")
+                      .join("\n\n")
 ensureDirs(["out", "out/specs", "out/acts"]);
 fs.writeFileSync(path.join("out/", path.basename(config_path, ".md") + ".acts"), acts_str);
 
@@ -99,7 +99,7 @@ let acts = acts_str_arr
       .reduce((a, e) => {
         let head = e[0];
         let tail = e.slice(1)
-        if(/^behaviour/.test(head)) {
+        if(/^behaviour\s/.test(head)) {
           a.name    = head.split(" ")[1]
           a.subject = head.split(" ")[3]
           a.varname2alias = {
@@ -203,6 +203,8 @@ let acts = acts_str_arr
             ? `#asByteStackInWidthaux(${mapInterface(a.interface, toK(rs[0]))}, 31, 32, ${ buildReturns(rs.slice(1)) })`
             : ".WordStack"
           a.returns = buildReturns(returns)
+        } else {
+          warn(`WARN: "${head}" block is unknown`)
         }
 
         return a;

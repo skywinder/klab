@@ -82,7 +82,8 @@ const main = ({onion, Server, K, Make, Db}) => {
 
   const dbquery$ = Server
     .filter(msg => [
-      "getblob"
+      "getblob",
+      "getconfig"
       // "getrule"
     ].indexOf(msg.type) > -1)
   const kmsg$ = Db
@@ -94,6 +95,13 @@ const main = ({onion, Server, K, Make, Db}) => {
     .filter(msg => msg.type !== "unknown")
   const notkmsg$ = Db
     .filter(msg => msg.type != "msg")
+
+  const subscribeWeb$ = Server
+    .filter(msg => msg.type === "sync")
+    .map(msg => ({
+      ...msg,
+      type: "subscribe"
+    }))
 
   const process$ = Server
     .filter(msg => msg.type === "run")
@@ -125,6 +133,7 @@ const main = ({onion, Server, K, Make, Db}) => {
     Make: process$,
     K: queueSinks.K,
     Db: xs.merge(
+      subscribeWeb$,
       subscribe$,
       unsubscribe$,
       dbquery$
