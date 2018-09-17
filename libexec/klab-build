@@ -3,6 +3,7 @@
 const fs            = require("fs");
 const path          = require("path");
 const marked        = require("marked");
+const {docopt}      = require("docopt");
 const clc           = require("cli-color");
 const _             = require("lodash");
 const Config        = require("../lib/config.js");
@@ -18,9 +19,24 @@ const {
   revert,
   ensureDirs
 }                   = require("../lib/util.js");
+
+const usage = `
+Usage:
+  klab build [options]
+
+Options:
+  --spec=<spec>
+  --filter=<filter>
+`
+const cmd = docopt(usage, {
+  argv: ["build"].concat(process.argv.slice(2))
+});
+
+const warn          = str => console.log(clc.xterm(214)(str))
 const config_json   = JSON.parse(fs.readFileSync("./config.json"));
 const config        = Config(config_json);
-const config_path   = process.argv[2] || config.src.specification;
+const config_path   = cmd["--spec"] || config.src.specification;
+const filter_subject= cmd["--filter"] || null;
 const raw_md_config = fs.readFileSync(config_path).toString()
 const raw_config    = marked.lexer(raw_md_config)
 const acts_str      = raw_config
@@ -41,6 +57,171 @@ const acts_str_arr  = acts_str
 
 
 // searches and adds abi variables with "ABI_" prefix
+const mapInterface = (is, str) => {
+  is.forEach(([t, n]) => {
+    str = str.replace(new RegExp("([^\\w\.]|^)" + n + "([^\\w]|$)", "g"), (a, b, c, d) => {
+      return b + "ABI_" + n + c;
+    })
+  })
+  return str;
+}
+
+let acts = acts_str_arr
+  .map(act_str => {
+    let _act = act_str
+      .replace(/\/\/[^\n]*\n/g, "")
+      .split("\n")
+      .reduce(([c, a], l) => {
+          if(/^[^\s]/.test(l)) {
+            if(c.length > 0) a = a.concat([c])
+            c = [l]
+          } else {
+            c = c.concat([l])
+          }
+        return [c, a];
+      }, [[], []])
+    let act_arr = _act[1].concat([_act[0]])
+    let act = act_arr
+      .reduce((a, e) => {
+        let head = e[0];
+        let tail = e.slice(1)
+        if(/^behaviour/.test(head)) {
+          a.name    = head.split(" ")[1]
+          a.subject = head.split(" ")[3]
+          a.varname2alias = {
+            "ACCT_ID": a.subject
+          }
+          console.log("Parsing act " + a.subject + "." + a.name)
+          fs.writeFileSync(path.join("out", "acts", a.subject + "_" + a.name + ".act"), act_str)
+        } else if(/^interface/.test(head)) {
+          const interface_str = head
+            .split(" ")
+            .slice(1)
+            .join(" ");
+          const interface  = interface_str
+            .match(/\(([^\)]*)\)/)[1]
+            .split(", ")
+            .map(l => l.split(" "))
+            .filter(l => l.length > 1)
+          const _interface_types = interface
+            .reduce((a, [v, k]) => {
+              a["ABI_" + k] = v;
+              return a;
+            }, {})
+          const fname = interface_str.slice(0, interface_str.indexOf("("))
+          a.callData = `#abiCallData("${fname}", ${make_args(interface.map(([type, name]) => ({type, name})))})`
+          a.signature = fname + "(" + interface
+            .map(([t, v]) => t).join(",") + ")"
+          a.types = {
+            ...a.types,
+            ..._interface_types
+          }
+          a.interface = interface;
+        } else if(/^types/.test(head)) {
+          // TODO - address will have a contract assigned
+          //      - get it and assign ACCT_ID to it
+          let _types = tail
+            .map(l => l.trim())
+            .filter(l => l != "")
+            .map(l => l.split(":").map(i => i.trim()))
+            .map(([varname, type]) => {
+              if(/^address/.test(type)) {
+                a.varname2alias = {
+                  ...a.varname2alias,
+                  [varname]: type.split(" ")[1]
+                }
+                return [varname, "address"];
+              } else {
+                return [varname, type];
+              }
+            })
+            .reduce((a, [k, v]) => {
+              a[k] = v;
+              return a;
+            }, {})
+          a.types = {
+            ...a.types,
+            ..._types
+          }
+        } else if(/^storage/.test(head)) {
+          let name = head.split(" ")[1] || "ACCT_ID";
+          let _storage = tail
+            .map(l => mapInterface(a.interface, l.trim()))
+            .filter(l => l != "")
+            .map(l => l.split("|->").map(i => toK(i).trim()))
+            .map(([k, v]) => {
+              if(v.indexOf("=>") > -1) {
+                v = v.split("=>").map(i => i.trim())
+              } else {
+                v = [v]
+              }
+              return [k, v];
+            })
+            .reduce((a, [k, v]) => {
+              a[k] = v;
+              return a;
+            }, {})
+          if( name !== "ACCT_ID" ) a.types[name + "_balance"] = "uint256";
+          a.storage = {
+            ...a.storage,
+            [name]: _storage
+          }
+        } else if(/^iff/.test(head)) {
+          let _iff = tail
+            .map(l => mapInterface(a.interface, toK(l).trim()))
+            .filter(l => l != "")
+          if(head.indexOf("in range") > -1) {
+            let range = bound[head.split(" in range ")[1]]
+            _iff = _iff
+              .map(l => range(l))
+          }
+          a.iff = (a.iff || []).concat( _iff )
+        } else if(/^if/.test(head)) {
+          let _if = tail
+            .map(l => mapInterface(a.interface, toK(l).trim()))
+            .filter(l => l != "")
+          a.if = (a.if || []).concat(_if)
+        } else if(/^returns/.test(head)) {
+          let returns = head.split(" ").slice(1).join(" ")
+            .split(":")
+            .map(e => e.trim())
+          let buildReturns = rs => rs.length > 0
+            ? `#asByteStackInWidthaux(${mapInterface(a.interface, toK(rs[0]))}, 31, 32, ${ buildReturns(rs.slice(1)) })`
+            : ".WordStack"
+          a.returns = buildReturns(returns)
+        }
+
+        return a;
+      }, {})
+    return act;
+  })
+
+
+const out = {};
+let behaviours = acts
+  .filter(act => !filter_subject || act.subject == filter_subject)
+  .map(act => {
+    console.log("Building k-spec " + act.subject + "." + act.name)
+
+    if(!act.storage) act.storage = {};
+    if(!act.storage.ACCT_ID) act.storage.ACCT_ID = []
+
+    const act_if = Object.keys(act.types)
+      .filter(name => act.types[name] in bound)
+      .map(name => {
+        let range = bound[act.types[name]]
+        return range(name)
+      })
+      .concat(act.if || [])
+
+    const storage_success = Object.keys(act.storage.ACCT_ID)
+      .map(key => key + " |-> (" + act.storage.ACCT_ID[key].join(" => ") + ")" )
+      .concat(["_:Map"])
+      .join("\n  " + " ".repeat(14))
+      + "\n"
+    const cond_success = (act_if || []).concat(act.iff || [])
+      .map(c => "  andBool " + c)
+      .join("\n")
 
 let act_objects = acts_str_arr
   .map(parseAct)
