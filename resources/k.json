@@ -63,8 +63,9 @@
     }
   },
   "requires": [
-            "#rangeAddress(ACCT_ID)",
+    "#rangeAddress(ACCT_ID)",
     "andBool #rangeAddress(CALLER_ID)",
-    "andBool #rangeAddress(ORIGIN_ID)"
+    "andBool #rangeAddress(ORIGIN_ID)",
+    "andBool #rangeUInt(48, TIME)"
   ]
 }
