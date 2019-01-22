@@ -247,6 +247,10 @@ rule ACCTCODE in SetItem( 1 )
     rule (#if C #then B1 #else B2 #fi) >=Int A => true
        requires B1 >=Int A andBool B2 >=Int A
 
+    rule A >=Int (#if C #then B1 #else B2 #fi) => true
+       requires A >=Int B1 andBool A >=Int B2
+
+
     rule A -Int A => 0
 
     rule bool2Word(A) |Int bool2Word(B) => bool2Word(A  orBool B)
