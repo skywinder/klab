@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -x
 K_OPTS=-Xmx10G \
 $KLAB_EVMS_PATH/.build/k/k-distribution/target/release/k/bin/kprove \
 --debugg \
