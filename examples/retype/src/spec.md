@@ -2,7 +2,10 @@
 behaviour callMe of Int
 interface callMe(int x)
 
-returns x
+iff
+   VCallValue == 0
+
+returns #unsigned(x)
 ```
 asd
 ```act

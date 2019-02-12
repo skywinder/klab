@@ -289,6 +289,10 @@ rule ACCTCODE in SetItem( 1 )
 rule chop(#unsigned(W)) => #unsigned(W)
   requires #rangeSInt(256, W)
 
+rule X ==K #unsigned(Y) => X ==K Y
+     requires #rangeSInt(256, Y)
+     andBool  #rangeUInt(256, X)
+
 rule #signed(#unsigned(W)) => W
   requires #rangeSInt(256, W)
 
