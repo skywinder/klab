@@ -27,6 +27,10 @@ iff
    VCallDepth < 1024
    VCallValue == 0
 
+if 
+
+   #rangeSInt(256, y)
+
 calls
 
     Int.callMe
